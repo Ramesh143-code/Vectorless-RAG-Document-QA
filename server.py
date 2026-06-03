@@ -1,16 +1,12 @@
 """
 server.py
 ─────────────────────────────────────────────────────────────────────────────
-Vectorless RAG — FastAPI Web Server
-Place in ROOT of project (same folder as main.py)
-
-Run:
-    uvicorn server:app --reload --port 8000
-Then open: http://localhost:8000
+Vectorless RAG — FastAPI Web Server with OCR Support
 ─────────────────────────────────────────────────────────────────────────────
 """
 
 import os
+import sys
 import uuid
 import math
 import re
@@ -27,6 +23,9 @@ from openai import OpenAI
 import fitz  # PyMuPDF
 from dotenv import load_dotenv
 
+# Import from src package (using the __init__.py exports)
+from src import PDFParser, create_parser, __version__
+
 load_dotenv()
 
 # ── API Key & Client ──────────────────────────────────────────────────────────
@@ -39,8 +38,23 @@ client = OpenAI(
     base_url="https://api.groq.com/openai/v1"
 )
 
+# ── Initialize PDF Parser with OCR Settings ───────────────────────────────────
+# Use the convenience function from __init__.py
+pdf_parser = create_parser(
+    ocr_quality="BALANCED",      # FAST, BALANCED, HIGH_QUALITY, VERY_HIGH, MAXIMUM
+    ocr_language="eng",           # English (change to "eng+fra" for French, etc.)
+    parallel_processing=True,     # Faster for multi-page PDFs
+    max_workers=4                 # Number of parallel workers
+)
+
+print(f"✅ Vectorless RAG v{__version__} with OCR support initialized")
+
 # ── FastAPI App ───────────────────────────────────────────────────────────────
-app = FastAPI(title="Vectorless RAG API", version="1.0.0")
+app = FastAPI(
+    title="Vectorless RAG API", 
+    version=__version__,
+    description="PDF Q&A with OCR support for scanned documents"
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -73,9 +87,17 @@ CHUNK_SIZE    = 400
 CHUNK_OVERLAP = 80
 
 def chunk_text(text: str, doc_id: str, filename: str) -> List[dict]:
+    """Split text into overlapping chunks for better retrieval"""
+    if not text or not text.strip():
+        return []
+    
     words = text.split()
     chunks = []
     step = CHUNK_SIZE - CHUNK_OVERLAP
+    
+    if len(words) == 0:
+        return []
+    
     for i in range(0, max(1, len(words) - CHUNK_OVERLAP), step):
         chunk_words = words[i : i + CHUNK_SIZE]
         if not chunk_words:
@@ -87,15 +109,18 @@ def chunk_text(text: str, doc_id: str, filename: str) -> List[dict]:
             "text":        " ".join(chunk_words),
             "chunk_index": len(chunks),
         })
+    
     return chunks
 
 # ═════════════════════════════════════════════════════════════════════════════
 # BM25 — pure Python, no external library
 # ═════════════════════════════════════════════════════════════════════════════
 def tokenize(text: str) -> List[str]:
+    """Simple tokenizer for BM25"""
     return re.findall(r'\b[a-z0-9]+\b', text.lower())
 
 def build_bm25(all_chunks: List[dict]) -> dict:
+    """Build BM25 index from chunks"""
     k1, b = 1.5, 0.75
     N = len(all_chunks)
     df: Dict[str, int] = defaultdict(int)
@@ -127,9 +152,11 @@ def build_bm25(all_chunks: List[dict]) -> dict:
     }
 
 def bm25_search(index: dict, query: str, top_k: int = 5) -> List[dict]:
+    """Search using BM25 algorithm"""
     tokens = tokenize(query)
     k1, b, avg_dl = index["k1"], index["b"], index["avg_dl"]
     scores = []
+    
     for i, (tf, dl) in enumerate(zip(index["doc_tfs"], index["doc_lens"])):
         score = 0.0
         for t in tokens:
@@ -138,6 +165,7 @@ def bm25_search(index: dict, query: str, top_k: int = 5) -> List[dict]:
             f = tf.get(t, 0)
             score += index["idf"][t] * (f * (k1 + 1)) / (f + k1 * (1 - b + b * dl / avg_dl))
         scores.append((score, i))
+    
     scores.sort(reverse=True)
     results = []
     for score, idx in scores[:top_k]:
@@ -159,78 +187,142 @@ def health():
         "index_built":   bm25_index is not None,
         "groq_key_set":  bool(api_key),
         "model":         "llama-3.1-8b-instant",
+        "ocr_enabled":   True,
+        "ocr_quality":   "BALANCED",
+        "version":       __version__,
     }
 
 
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
+    """Upload and parse a PDF file (supports both text and scanned PDFs)"""
     global bm25_index
 
     name = file.filename.lower()
     if not name.endswith((".pdf", ".txt", ".md")):
         raise HTTPException(400, "Only PDF, TXT, and MD files are supported.")
 
-    raw = await file.read()
+    # Create temp directory if it doesn't exist
+    temp_dir = Path("/tmp") if os.name != 'nt' else Path(os.environ.get('TEMP', '.'))
+    temp_path = temp_dir / f"{uuid.uuid4()}_{file.filename}"
+    temp_path.parent.mkdir(exist_ok=True)
+    
+    try:
+        # Save file
+        content = await file.read()
+        with open(temp_path, "wb") as f:
+            f.write(content)
+        
+        # Parse using OCR-enabled parser
+        if name.endswith(".pdf"):
+            try:
+                # Use our enhanced PDF parser with OCR
+                parsed_doc = pdf_parser.parse(temp_path)
+                text = parsed_doc.get_all_text()
+                
+                # Get OCR status
+                is_scanned = parsed_doc.metadata.is_scanned
+                ocr_quality = parsed_doc.metadata.ocr_quality if is_scanned else "N/A"
+                pages = parsed_doc.metadata.page_count
+                
+                print(f"✅ PDF processed: {file.filename} (Scanned: {is_scanned}, Pages: {pages}, OCR Quality: {ocr_quality})")
+                
+            except Exception as e:
+                print(f"❌ PDF parse error: {e}")
+                raise HTTPException(500, f"PDF parse error with OCR: {str(e)}")
+        else:
+            # For text files
+            text = content.decode("utf-8", errors="ignore")
+            is_scanned = False
+            ocr_quality = "N/A"
 
-    if name.endswith(".pdf"):
-        try:
-            pdf  = fitz.open(stream=raw, filetype="pdf")
-            text = "\n".join(page.get_text() for page in pdf)
-            pdf.close()
-        except Exception as e:
-            raise HTTPException(500, f"PDF parse error: {e}")
-    else:
-        text = raw.decode("utf-8", errors="ignore")
+        if not text or not text.strip():
+            raise HTTPException(400, "Could not extract any text from this file.")
 
-    if not text.strip():
-        raise HTTPException(400, "Could not extract any text from this file.")
+        # Create document chunks
+        doc_id = str(uuid.uuid4())[:8]
+        chunks = chunk_text(text, doc_id, file.filename)
 
-    doc_id = str(uuid.uuid4())[:8]
-    chunks = chunk_text(text, doc_id, file.filename)
+        if not chunks:
+            raise HTTPException(400, "Text extracted but no content could be chunked.")
 
-    documents[doc_id] = {
-        "doc_id":      doc_id,
-        "filename":    file.filename,
-        "chunks":      chunks,
-        "char_count":  len(text),
-        "chunk_count": len(chunks),
-    }
+        # Store document
+        documents[doc_id] = {
+            "doc_id":      doc_id,
+            "filename":    file.filename,
+            "chunks":      chunks,
+            "char_count":  len(text),
+            "chunk_count": len(chunks),
+            "is_scanned":  is_scanned,
+            "ocr_quality": ocr_quality,
+            "pages":       pages if name.endswith(".pdf") else 0,
+        }
 
-    bm25_index = None  # invalidate index on new upload
+        # Invalidate index on new upload
+        bm25_index = None
 
-    return {
-        "doc_id":      doc_id,
-        "filename":    file.filename,
-        "chunk_count": len(chunks),
-        "char_count":  len(text),
-        "status":      "parsed",
-    }
+        return {
+            "doc_id":      doc_id,
+            "filename":    file.filename,
+            "chunk_count": len(chunks),
+            "char_count":  len(text),
+            "is_scanned":  is_scanned,
+            "ocr_quality": ocr_quality,
+            "pages":       pages if name.endswith(".pdf") else 0,
+            "status":      "parsed",
+            "text_preview": text[:200] + "..." if len(text) > 200 else text,
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Upload error: {e}")
+        raise HTTPException(500, f"Upload processing error: {str(e)}")
+    finally:
+        # Clean up temp file
+        if temp_path.exists():
+            try:
+                temp_path.unlink()
+            except:
+                pass
 
 
 @app.post("/index")
 def build_index():
+    """Build BM25 index from all uploaded documents"""
     global bm25_index
     if not documents:
-        raise HTTPException(400, "No documents uploaded yet.")
+        raise HTTPException(400, "No documents uploaded yet. Upload a PDF first.")
 
     all_chunks = [c for doc in documents.values() for c in doc["chunks"]]
+    
+    if not all_chunks:
+        raise HTTPException(400, "No chunks found to index. Try re-uploading your document.")
+    
     bm25_index = build_bm25(all_chunks)
+
+    # Count scanned vs text documents
+    scanned_count = sum(1 for d in documents.values() if d.get("is_scanned", False))
+    text_count = len(documents) - scanned_count
 
     return {
         "status":       "indexed",
         "total_docs":   len(documents),
         "total_chunks": len(all_chunks),
+        "scanned_docs": scanned_count,
+        "text_docs":    text_count,
     }
 
 
 class AskRequest(BaseModel):
     query: str
     top_k: int = 5
-    model: str = "llama-3.1-8b-instant"   # Groq free model
+    model: str = "llama-3.1-8b-instant"
 
 
 @app.post("/ask")
 def ask(req: AskRequest):
+    """Ask a question based on indexed documents"""
     if bm25_index is None:
         raise HTTPException(400, "Index not built yet. Click 'Build Index' first.")
     if not req.query.strip():
@@ -239,7 +331,7 @@ def ask(req: AskRequest):
     top_chunks = bm25_search(bm25_index, req.query, top_k=req.top_k)
     if not top_chunks:
         return {
-            "answer":    "No relevant content found for your question.",
+            "answer":    "No relevant content found for your question. Try uploading different documents or rephrasing your question.",
             "citations": [],
             "chunks":    [],
         }
@@ -279,6 +371,7 @@ def ask(req: AskRequest):
                 "filename":    c["filename"],
                 "doc_id":      c["doc_id"],
                 "chunk_index": c["chunk_index"],
+                "is_scanned":  documents.get(c["doc_id"], {}).get("is_scanned", False),
             })
 
     return {
@@ -297,22 +390,89 @@ def ask(req: AskRequest):
 
 @app.get("/documents")
 def list_documents():
+    """List all uploaded documents with metadata"""
     return [
         {
             "doc_id":      d["doc_id"],
             "filename":    d["filename"],
             "chunk_count": d["chunk_count"],
             "char_count":  d["char_count"],
+            "is_scanned":  d.get("is_scanned", False),
+            "ocr_quality": d.get("ocr_quality", "N/A"),
+            "pages":       d.get("pages", 0),
         }
         for d in documents.values()
     ]
 
 
+@app.get("/documents/{doc_id}")
+def get_document_details(doc_id: str):
+    """Get detailed information about a specific document"""
+    if doc_id not in documents:
+        raise HTTPException(404, "Document not found.")
+    
+    doc = documents[doc_id]
+    return {
+        "doc_id":      doc["doc_id"],
+        "filename":    doc["filename"],
+        "chunk_count": doc["chunk_count"],
+        "char_count":  doc["char_count"],
+        "is_scanned":  doc.get("is_scanned", False),
+        "ocr_quality": doc.get("ocr_quality", "N/A"),
+        "pages":       doc.get("pages", 0),
+        "chunks_preview": [
+            {
+                "index": c["chunk_index"],
+                "preview": c["text"][:150] + "...",
+                "length": len(c["text"])
+            }
+            for c in doc["chunks"][:3]  # Show first 3 chunks
+        ]
+    }
+
+
 @app.delete("/documents/{doc_id}")
 def delete_document(doc_id: str):
+    """Delete a document from the store"""
     global bm25_index
     if doc_id not in documents:
         raise HTTPException(404, "Document not found.")
+    
+    filename = documents[doc_id]["filename"]
     del documents[doc_id]
+    bm25_index = None  # Invalidate index
+    
+    return {"status": "deleted", "doc_id": doc_id, "filename": filename}
+
+
+@app.delete("/documents")
+def delete_all_documents():
+    """Delete all documents"""
+    global documents, bm25_index
+    count = len(documents)
+    documents = {}
     bm25_index = None
-    return {"status": "deleted", "doc_id": doc_id}
+    return {"status": "deleted", "count": count}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    print("=" * 60)
+    print("🚀 Vectorless RAG Server with OCR Support")
+    print("=" * 60)
+    print(f"📚 Version: {__version__}")
+    print(f"📁 Data directory: {Path('data').absolute()}")
+    print(f"🌐 Frontend directory: {FRONTEND_DIR.absolute() if FRONTEND_DIR.exists() else 'Not found'}")
+    print(f"🔍 OCR: Enabled (Quality: BALANCED, Language: eng)")
+    print("=" * 60)
+    print("🌎 Open http://localhost:8000 in your browser")
+    print("💡 Press CTRL+C to stop the server")
+    print("=" * 60)
+    
+    uvicorn.run(
+        app, 
+        host="0.0.0.0", 
+        port=8000, 
+        reload=True,
+        log_level="info"
+    )
