@@ -1,11 +1,11 @@
 <div align="center">
 
 ```
-██╗   ██╗███████╗ ██████╗████████╗ ██████╗ ██████╗ ██╗     ███████╗███████╗
-██║   ██║██╔════╝██╔════╝╚══██╔══╝██╔═══██╗██╔══██╗██║     ██╔════╝██╔════╝
+██╗   ██╗███████╗ ██████╗████████╗ ██████╗ ██████╗ ██╗     ███████╗███████╗███████╗
+██║   ██║██╔════╝██╔════╝╚══██╔══╝██╔═══██╗██╔══██╗██║     ██╔════╝██╔════╝██╔════╝
 ██║   ██║█████╗  ██║        ██║   ██║   ██║██████╔╝██║     █████╗  ███████╗███████╗
 ╚██╗ ██╔╝██╔══╝  ██║        ██║   ██║   ██║██╔══██╗██║     ██╔══╝  ╚════██║╚════██║
- ╚████╔╝ ███████╗╚██████╗   ██║   ╚██████╔╝██║  ██║███████╗███████╗██████╔╝███████╝
+ ╚████╔╝ ███████╗╚██████╗   ██║   ╚██████╔╝██║  ██║███████╗███████╗███████║███████║
   ╚═══╝  ╚══════╝ ╚═════╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝╚══════╝
                                     R A G
 ```
@@ -32,15 +32,15 @@
 
 <br/>
 
-<img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=700&size=24&pause=1500&color=22C55E&center=true&vCenter=true&width=950&lines=Vectorless+RAG+for+Structured+Documents;PDF+Parsing+%26+Chunking;BM25+%2B+TF-IDF+Retrieval;Lightning+Fast+Q%26A" alt="animated title">
+<img src="https://readme-typing-svg.demolab.com?font=JetBrains+Mono&weight=700&size=24&pause=1500&color=22C55E&center=true&vCenter=true&width=950&lines=Vectorless+RAG+for+Structured+Documents;PDF+Parsing+%7C+OCR+%7C+BM25+Retrieval;No+Embeddings.+No+Vector+DB.;Just+Relevant+Answers." />
 
 </div>
 
 ---
 
-## 📸 Demo & Screenshots
+## 📸 Demo
 
-<div align="center">
+<div align="">
 
 | Upload & Index | Ask Questions | See Sources |
 |:-:|:-:|:-:|
@@ -48,102 +48,8 @@
 
 </div>
 
-### Step-by-Step Usage Guide
-
-#### **Step 1: Upload & Prepare Documents**
-Upload your PDF documents using the intuitive drag-and-drop interface. The system automatically handles both digital and scanned PDFs through OCR.
-
-```
-[Vectorless RAG UI - Upload Screen]
-├── Left Panel: Document Management
-│   ├── Drop PDFs here (or click to browse)
-│   ├── List of uploaded documents with status indicators
-│   └── File size and chunk count display
-└── Right Panel: Main Chat Area
-    ├── Status: "Drop PDFs here or click to browse"
-    └── Ready for document upload
-```
-
-#### **Step 2: Index Your Documents**
-Click the **"Index Ready"** button to process all uploaded PDFs. The system performs:
-- Structure extraction (headings, tables, sections)
-- BM25 + TF-IDF index building
-- Heading trail context creation for citations
-
-**Result:** `Index built – 1 doc, 24 chunks ready.`
-
-#### **Step 3: Ask Natural Language Questions**
-Type your questions in plain English. The retrieval engine handles context from document structure automatically.
-
-**Example Query:** *"What is problem statement of the project"*
-
-**Retrieved Response:**
-```
-According to [Source: project report final XAI.pdf | Chunk 4], 
-the problem statement of the project is:
-
-"Although machine learning techniques have been widely used for predicting 
-heart disease risk, many existing models operate as black-box systems that 
-do not provide clear explanations for their predictions. In healthcare 
-applications, lack of transparency can reduce trust among medical professionals 
-and limit the practical adoption of such systems. Therefore, there is a need 
-for a predictive system that not only estimates the risk of heart disease 
-accurately but also explains the reasoning behind each prediction."
-
-Retrieved Chunks (with BM25 scores):
-├── project report final XAI.pdf · chunk_2     BM25: 5.5601
-├── project report final XAI.pdf · chunk_4     BM25: 4.6484
-├── project report final XAI.pdf · chunk_13    BM25: 4.6202
-├── project report final XAI.pdf · chunk_14    BM25: 3.1692
-└── project report final XAI.pdf · chunk_9     BM25: 1.9571
-```
-
-#### **Step 4: View Evaluation Metrics**
-Click **"Evaluation Metrics"** to see real-time performance analytics:
-
-```
-┌─────────────────────────────────────────┐
-│         EVALUATION DASHBOARD             │
-├─────────────────────────────────────────┤
-│  84%  Average Score                     │
-│   1   Query Count                       │
-│ 2956ms Average Latency                  │
-│                                         │
-│  QUERY: "what is problem statement..." │
-│  Score: 84%                             │
-│  ├─ Faithfulness:        98%  ████████ │
-│  ├─ Answer Relevance:    99%  ████████ │
-│  ├─ Context Precision:   99%  ████████ │
-│  ├─ Context Recall:      61%  █████    │
-│  ├─ Chunk Diversity:     95%  ████████ │
-│  └─ Latency Score:       56%  ████     │
-│  Rating: ⭐⭐⭐⭐☆                       │
-└─────────────────────────────────────────┘
-
-QUERY HISTORY:
-├── "what is problem statement..." (84%)
-└── "how this project is useful"   (83%)
-```
-
----
-
-## 📊 Key Performance Indicators
-
-<div align="">
-
-### Real-World Metrics (from screenshots):
-| Metric | Value | Status |
-|--------|-------|--------|
-| **Average Score** | 84% | ✅ Excellent |
-| **Faithfulness** | 98% | ✅ High accuracy |
-| **Answer Relevance** | 99% | ✅ Highly relevant |
-| **Context Precision** | 99% | ✅ Exact matches |
-| **Context Recall** | 61% | ⚠️ Room for improvement |
-| **Chunk Diversity** | 95% | ✅ Well-distributed |
-| **Average Latency** | 2956ms | ⚠️ Can be optimized |
-| **Query Count** | 1-2 | 📊 Growing |
-
-</div>
+> **Live on [localhost:8000](http://localhost:8000)** — Drop a PDF, hit Index, start asking. That's it.
+> **Live on [localhost:8000](http://127.0.0.1:8000)** — Drop a PDF, hit Index, start asking. That's it.
 
 ---
 
@@ -170,9 +76,9 @@ QUERY HISTORY:
 ## 🏗️ Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
+┌─────────────────────────────────────────────────────────────────────┐
 │                        VECTORLESS RAG PIPELINE                      │
-├─────────────────────────────────────────────────────────────────┤
+├─────────────────────────────────────────────────────────────────────┤
 │                                                                     │
 │   📄 PDF Input                                                      │
 │      │                                                              │
@@ -185,7 +91,7 @@ QUERY HISTORY:
 │   └──────────────────────┬───────────────────────┘                 │
 │                          │ ParsedDocument                          │
 │                          ▼                                         │
-│   ┌─────────────────────────────────────────────���┐                 │
+│   ┌──────────────────────────────────────────────┐                 │
 │   │           chunker.py                         │                 │
 │   │   Structure-Aware Chunking                   │                 │
 │   │   → Heading-bounded sections                 │                 │
@@ -219,7 +125,7 @@ QUERY HISTORY:
 │   │   → /upload  /index  /ask  /stats            │                 │
 │   └──────────────────────────────────────────────┘                 │
 │                                                                     │
-└─────────────────────────────────────────────────────────────────┘
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -246,7 +152,6 @@ QUERY HISTORY:
 - **Source citations** — every answer links to exact file, page, and section
 - **Chunk transparency** — see exactly which chunks were retrieved and their scores
 - **Real-time UI** — clean web interface with drag-and-drop upload
-- **Evaluation metrics** — track faithfulness, relevance, precision, recall in real-time
 
 ### ⚡ Performance
 - **Groq inference** — among the fastest LLM APIs available (hundreds of tokens/sec)
@@ -440,39 +345,6 @@ BM25 scores are **min-max normalized** per query before fusion. TF-IDF uses **su
 
 ---
 
-## 🚀 Planned Improvements & Enhancements
-
-### Phase 1: Performance Optimization (High Priority)
-- **Latency Reduction** — Target: < 1500ms average response time
-  - Implement query caching layer
-  - Optimize TF-IDF computation with sparse matrices
-  - Add background indexing for large PDFs
-  
-- **Context Recall Enhancement** — Target: > 80% recall
-  - Implement hybrid query expansion using synonyms
-  - Add semantic keyword extraction pre-processing
-  - Multi-pass retrieval strategy for complex queries
-
-### Phase 2: Advanced Features (Medium Priority)
-- [ ] **Query Decomposition** — Break multi-hop questions into retrievable sub-queries
-- [ ] **Reranking Layer** — Cross-encoder reranking for top-5 results
-- [ ] **Metadata Filters** — Date range, document source, section type filtering
-- [ ] **Export Capabilities** — Save conversations as PDF/Markdown with proper citations
-
-### Phase 3: Production Readiness (Medium Priority)
-- [ ] **Docker Containerization** — One-command deployment
-- [ ] **Batch Processing API** — `/batch/ask` for bulk questions
-- [ ] **Caching Strategy** — Redis integration for query result caching
-- [ ] **Rate Limiting** — API throttling and quota management
-
-### Phase 4: Enterprise Features (Lower Priority)
-- [ ] **Document Versioning** — Track PDF updates and maintain version history
-- [ ] **User Feedback Loop** — Rating system for answer quality
-- [ ] **Analytics Dashboard** — Detailed query analytics and insights
-- [ ] **Multi-language Support** — Question answering in multiple languages
-
----
-
 ## 🗺️ Roadmap
 
 - [x] BM25 + TF-IDF hybrid retrieval
@@ -482,15 +354,12 @@ BM25 scores are **min-max normalized** per query before fusion. TF-IDF uses **su
 - [x] Multi-turn conversation history
 - [x] Web UI with drag-and-drop upload
 - [x] FastAPI REST server with full CORS support
-- [x] Real-time evaluation metrics dashboard
 - [ ] Query decomposition for complex multi-hop questions
 - [ ] Reranking layer (cross-encoder)
 - [ ] Metadata filters (date range, document source)
 - [ ] Export conversation as PDF/Markdown
 - [ ] Docker containerization
 - [ ] Batch document processing API
-- [ ] Latency optimization (target < 1.5s)
-- [ ] Context recall enhancement (target > 80%)
 
 ---
 
