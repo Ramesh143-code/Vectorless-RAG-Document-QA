@@ -398,3 +398,30 @@ def compute_evaluation(query: str, chunks: list, answer: str, latency_ms: float)
         "answer_preview":  answer[:80] + "..." if len(answer) > 80 else answer,
         "metrics":         metrics,
     }
+
+# Add these imports at the top of your server.py (if not already there)
+# ... (your existing code remains the same) ...
+
+# At the very bottom of your server.py file, replace the existing __main__ block with this:
+
+if __name__ == "__main__":
+    import uvicorn
+    
+    # Get port from environment variable (Hugging Face Spaces uses PORT)
+    # Default to 7860 for Hugging Face Spaces, 8000 for local development
+    port = int(os.environ.get("PORT", 7860))
+    host = os.environ.get("HOST", "0.0.0.0")
+    
+    print(f"🚀 Starting Vectorless RAG Server")
+    print(f"📍 Host: {host}")
+    print(f"📍 Port: {port}")
+    print(f"📍 Environment: {'Hugging Face Spaces' if os.environ.get('SPACE_ID') else 'Local Development'}")
+    print("=" * 50)
+    
+    uvicorn.run(
+        "server:app",
+        host=host,
+        port=port,
+        reload=False,  # Set to False for production
+        log_level="info"
+    )
