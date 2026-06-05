@@ -1,24 +1,10 @@
 """
 rag_pipeline.py
 ─────────────────────────────────────────────────────────────────────────────
-Vectorless RAG — End-to-End Pipeline (OpenAI version)
+Vectorless RAG — End-to-End Pipeline (Groq version)
 
 Ties together all components:
-    PDF Parser → Chunker → Retriever → OpenAI GPT (Generator)
-
-Flow for a single query:
-    1. (Once) Parse all PDFs in data/ into ParsedDocuments
-    2. (Once) Chunk all documents → flat list of Chunks
-    3. (Once) Index chunks in BM25Retriever
-    4. (Per query) Retrieve top-K relevant chunks
-    5. (Per query) Build a context-aware prompt with heading breadcrumbs
-    6. (Per query) Send to OpenAI → get answer
-    7. Return RAGResponse with answer + source citations
-
-Supports:
-    - Single-turn Q&A
-    - Multi-turn conversation (maintains message history)
-    - Multi-query fusion (rephrase + retrieve for better recall)
+    PDF Parser → Chunker → Retriever → Groq LLM (Generator)
 ─────────────────────────────────────────────────────────────────────────────
 """
 
@@ -28,7 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from openai import OpenAI
+from groq import Groq
 from dotenv import load_dotenv
 from loguru import logger
 
@@ -40,11 +26,11 @@ load_dotenv()
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-PDF_INPUT_DIR  = os.getenv("PDF_INPUT_DIR", "data/")
-TOP_K          = int(os.getenv("TOP_K_RESULTS", 5))
-MODEL          = os.getenv("OPENAI_MODEL", "gpt-4o-mini")   # override in .env
-MAX_TOKENS     = 1024
+GROQ_API_KEY  = os.getenv("GROQ_API_KEY", "")
+PDF_INPUT_DIR = os.getenv("PDF_INPUT_DIR", "data/")
+TOP_K         = int(os.getenv("TOP_K_RESULTS", 5))
+MODEL         = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+MAX_TOKENS    = 1024
 
 # ─── Prompt Templates ─────────────────────────────────────────────────────────
 
@@ -100,17 +86,7 @@ class Citation:
 
 @dataclass
 class RAGResponse:
-    """
-    Full response from the RAG pipeline.
-
-    Attributes:
-        query       : The original question asked.
-        answer      : GPT's generated answer.
-        citations   : List of Citation objects for sources used.
-        chunks_used : The actual Chunk objects retrieved.
-        latency_ms  : End-to-end latency in milliseconds.
-        model       : Model used for generation.
-    """
+    """Full response from the RAG pipeline."""
     query      : str
     answer     : str
     citations  : list[Citation]
@@ -137,14 +113,7 @@ class RAGResponse:
 # ─── Pipeline ─────────────────────────────────────────────────────────────────
 
 class VectorlessRAGPipeline:
-    """
-    End-to-end Vectorless RAG pipeline using OpenAI.
-
-    Lifecycle:
-        pipeline = VectorlessRAGPipeline()
-        pipeline.build()                              # parse + chunk + index
-        answer = pipeline.ask("What is the revenue?")
-    """
+    """End-to-end Vectorless RAG pipeline using Groq."""
 
     def __init__(
         self,
@@ -159,21 +128,15 @@ class VectorlessRAGPipeline:
         self._parser    = PDFParser()
         self._chunker   = StructuredChunker()
         self._retriever = BM25Retriever(top_k=top_k)
-        self._client    = OpenAI(api_key=OPENAI_API_KEY)
+        self._client    = Groq(api_key=GROQ_API_KEY)   # ← Groq client
 
         self._chunks  : list[Chunk] = []
-        self._history : list[dict]  = []   # multi-turn message history
+        self._history : list[dict]  = []
         self._is_built = False
 
     # ── Build ─────────────────────────────────────────────────────────────────
 
     def build(self, pdf_paths: Optional[list[Path]] = None) -> None:
-        """
-        Parse, chunk, and index PDFs.
-
-        Args:
-            pdf_paths: Explicit list of PDF paths. If None, scans self.pdf_dir.
-        """
         logger.info("🔨 Building RAG pipeline …")
 
         if pdf_paths:
@@ -186,15 +149,14 @@ class VectorlessRAGPipeline:
 
         self._chunks = self._chunker.chunk_documents(docs)
         self._retriever.index(self._chunks)
-
         self._is_built = True
+
         logger.success(
             f"✅ Pipeline ready: {len(docs)} PDF(s), "
             f"{len(self._chunks)} chunks indexed."
         )
 
     def rebuild(self) -> None:
-        """Re-parse and re-index all PDFs (use after adding new files)."""
         self._is_built = False
         self._history  = []
         self.build()
@@ -208,25 +170,12 @@ class VectorlessRAGPipeline:
         maintain_history: bool          = True,
         show_retrieval  : bool          = False,
     ) -> RAGResponse:
-        """
-        Ask a question against the indexed documents.
-
-        Args:
-            query           : Natural language question.
-            top_k           : Override default top-K for this query.
-            maintain_history: If True, includes prior Q&A in context.
-            show_retrieval  : If True, prints retrieved chunks to console.
-
-        Returns:
-            RAGResponse with answer, citations, and metadata.
-        """
         if not self._is_built:
             raise RuntimeError("Call .build() before .ask().")
 
         start = time.time()
         k = top_k or self.top_k
 
-        # ── Retrieve ──────────────────────────────────────────────────────────
         if self.use_multi_query:
             paraphrases = self._generate_query_variants(query)
             results = self._retriever.retrieve_multi_query(paraphrases, top_k=k)
@@ -236,26 +185,25 @@ class VectorlessRAGPipeline:
         if show_retrieval:
             print_retrieval_results(results, query)
 
-        # ── Build Prompt ──────────────────────────────────────────────────────
         context_block = self._build_context(results)
         user_message  = context_block + "\n" + QUERY_TEMPLATE.format(query=query)
 
-        # ── Call OpenAI ───────────────────────────────────────────────────────
         messages = (
             [{"role": "system", "content": SYSTEM_PROMPT}]
             + self._history
             + [{"role": "user", "content": user_message}]
         )
 
+        # ── Groq API call (same shape as OpenAI) ──────────────────────────────
         response = self._client.chat.completions.create(
-            model      = MODEL,
-            max_tokens = MAX_TOKENS,
-            messages   = messages,
+            model       = MODEL,
+            max_tokens  = MAX_TOKENS,
+            messages    = messages,
+            temperature = 0.1,
         )
 
         answer = response.choices[0].message.content.strip()
 
-        # ── Update History ────────────────────────────────────────────────────
         if maintain_history:
             self._history.append({"role": "user",      "content": user_message})
             self._history.append({"role": "assistant",  "content": answer})
@@ -273,29 +221,26 @@ class VectorlessRAGPipeline:
         )
 
     def clear_history(self) -> None:
-        """Reset conversation history for a fresh session."""
         self._history = []
         logger.info("Conversation history cleared.")
 
     # ── Context Builder ───────────────────────────────────────────────────────
 
     def _build_context(self, results: list[RetrievalResult]) -> str:
-        """Format retrieved chunks into a structured context block."""
         blocks = []
         for res in results:
             c = res.chunk
             pages = (f"{c.page_start}-{c.page_end}"
                      if c.page_start != c.page_end
                      else str(c.page_start))
-            block = CONTEXT_TEMPLATE.format(
+            blocks.append(CONTEXT_TEMPLATE.format(
                 rank       = res.rank,
                 source     = c.source_file,
                 pages      = pages,
                 section    = c.heading_context or "(no section)",
                 chunk_type = c.chunk_type.value,
                 text       = c.text,
-            )
-            blocks.append(block)
+            ))
         return "\n".join(blocks)
 
     # ── Citations ─────────────────────────────────────────────────────────────
@@ -320,7 +265,6 @@ class VectorlessRAGPipeline:
     # ── Multi-Query Expansion ─────────────────────────────────────────────────
 
     def _generate_query_variants(self, query: str) -> list[str]:
-        """Ask GPT to rephrase the query 2 ways for broader retrieval."""
         prompt = (
             f"Rephrase the following question in 2 alternative ways "
             f"that preserve the same meaning. Return only the 2 rephrased "
@@ -367,9 +311,8 @@ class VectorlessRAGPipeline:
 # ─── Interactive CLI ──────────────────────────────────────────────────────────
 
 def run_interactive(pipeline: VectorlessRAGPipeline) -> None:
-    """Run an interactive Q&A session in the terminal."""
     print("\n" + "═"*60)
-    print("  🤖  Vectorless RAG — Interactive Mode (OpenAI)")
+    print("  🤖  Vectorless RAG — Interactive Mode (Groq)")
     print("  Type your question. Commands: :quit :clear :stats :help")
     print("═"*60 + "\n")
 
@@ -377,39 +320,24 @@ def run_interactive(pipeline: VectorlessRAGPipeline) -> None:
         try:
             query = input("  ❓ Question: ").strip()
         except (EOFError, KeyboardInterrupt):
-            print("\n  Goodbye!\n")
-            break
+            print("\n  Goodbye!\n"); break
 
-        if not query:
-            continue
-
+        if not query: continue
         if query.lower() in (":quit", ":q", "exit", "quit"):
-            print("\n  Goodbye!\n")
-            break
+            print("\n  Goodbye!\n"); break
         elif query.lower() == ":clear":
-            pipeline.clear_history()
-            print("  ✅ History cleared.\n")
-            continue
+            pipeline.clear_history(); print("  ✅ History cleared.\n")
         elif query.lower() == ":stats":
             stats = pipeline.get_index_stats()
-            print(f"\n  📊 Index stats:")
-            for k, v in stats.items():
-                print(f"     {k}: {v}")
-            print()
-            continue
+            for k, v in stats.items(): print(f"     {k}: {v}")
         elif query.lower() == ":help":
-            print("\n  Commands:")
-            print("    :clear  — clear conversation history")
-            print("    :stats  — show index stats")
-            print("    :quit   — exit\n")
-            continue
-
-        try:
-            response = pipeline.ask(query, show_retrieval=False)
-            print(response)
-        except Exception as e:
-            logger.error(f"Error during query: {e}")
-            print(f"\n  ⚠ Error: {e}\n")
+            print("    :clear / :stats / :quit")
+        else:
+            try:
+                response = pipeline.ask(query, show_retrieval=False)
+                print(response)
+            except Exception as e:
+                print(f"\n  ⚠ Error: {e}\n")
 
 
 # ─── Entry Point ──────────────────────────────────────────────────────────────
@@ -424,14 +352,11 @@ if __name__ == "__main__":
     )
 
     if len(sys.argv) > 1:
-        pdf_path = Path(sys.argv[1])
-        pipeline.build(pdf_paths=[pdf_path])
+        pipeline.build(pdf_paths=[Path(sys.argv[1])])
     else:
         pipeline.build()
 
     if len(sys.argv) > 2:
-        query    = sys.argv[2]
-        response = pipeline.ask(query)
-        print(response)
+        print(pipeline.ask(sys.argv[2]))
     else:
         run_interactive(pipeline)
